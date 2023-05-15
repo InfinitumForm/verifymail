@@ -27,7 +27,8 @@ if ( ! defined( 'ABSPATH' ) ) { exit; }
 global $verifymail;
 $verifymail = ( (object) [
 	'file' => __FILE__,
-	'path' => rtrim(plugin_dir_path(__FILE__), '/')
+	'path' => rtrim(plugin_dir_path(__FILE__), '/'),
+	'api_pricing_url' => 'https://verifymail.io/pricing'
 ] );
 
 /**
@@ -59,6 +60,7 @@ if( !class_exists('VerifyMail', false) ) : final class VerifyMail {
 		global $verifymail;
 		
 		$include_classes = [
+			'Settings' => true,
 			'API' => false
 		];
 		

@@ -11,11 +11,6 @@ if(!class_exists('VerifyMail_API')) : class VerifyMail_API {
 	#########################
 	
 	/**
-	 * SETTINGS: Verify Email API KEY
-	 */
-	private const API_KEY = 'daff1f6d4dc44586b42978a03c95eb17';
-	
-	/**
 	 * SETTINGS: Cache group (optional)
 	 */
 	private const CACHE_GROUP = 'verifymail';
@@ -248,7 +243,7 @@ if(!class_exists('VerifyMail_API')) : class VerifyMail_API {
 		}
 		
 		// Ask API for the email
-		$response = wp_remote_get('https://verifymail.io/api/' . $email . '?key=' . self::API_KEY . '&referrer=wordpress' );
+		$response = wp_remote_get( esc_url('https://verifymail.io/api/' . $email . '?key=' . VerifyMail_Settings::get('api_key', NULL) . '&referrer=wordpress') );
 		
 		// Verify API response
 		if ( is_array( $response ) && ! is_wp_error( $response ) ) {
