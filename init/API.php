@@ -15,12 +15,6 @@ if(!class_exists('VerifyMail_API')) : class VerifyMail_API {
 	 */
 	private const CACHE_GROUP = 'verifymail';
 	
-	/**
-	 * SETTINGS: Keep Cache (optional)
-	 */
-	private const CACHE_PERIOD = 'monthly';
-	
-	
 	
 	
 	########################
@@ -52,6 +46,7 @@ if(!class_exists('VerifyMail_API')) : class VerifyMail_API {
 	// Error handler
 	public $message = NULL;
 	public $error = true;
+	public $status = 404;
 	
 	
 	
@@ -69,10 +64,14 @@ if(!class_exists('VerifyMail_API')) : class VerifyMail_API {
 	public static function lookup( $email ) {
 		global $verifymail;
 		
-		if( !( $verifymail->lookup ?? NULL ) ) {
-			$verifymail->lookup = ( new self($email) )->request;
+		if( !isset($verifymail->lookup) ) {
+			$verifymail->lookup = [];
+		}
+		
+		if( !( $verifymail->lookup[$email] ?? NULL ) ) {
+			$verifymail->lookup[$email] = ( new self($email) )->request;
 		}		
-		return $verifymail->lookup;
+		return $verifymail->lookup[$email];
 	}
 	
 	/**
@@ -81,13 +80,18 @@ if(!class_exists('VerifyMail_API')) : class VerifyMail_API {
 	 * @pharam   string     Email address
 	 * @return   bool
 	 */
-	private static $__verify;
 	public static function verify( $email ) {
-		if( !self::$__verify ) {
-			$lookup = self::lookup( $email );
-			self::$__verify = ( !( $lookup->error || $lookup->block || $lookup->disposable || !$lookup->deliverable_email ) );
-		}		
-		return self::$__verify;
+		$lookup = self::lookup( $email );
+		
+		if( $lookup->deliverable_email ) {
+			return true;
+		}
+		
+		if( !$lookup->block ) {
+			return true;
+		}
+		
+		return false;
 	}
 	
 	/**
@@ -210,6 +214,16 @@ if(!class_exists('VerifyMail_API')) : class VerifyMail_API {
 	}
 	
 	
+	/**
+	 * Validate email address
+	 *
+	 * @return   bool
+	 */
+	public static function validate( $email ) {
+		return (boolean) filter_var($email, FILTER_VALIDATE_EMAIL);
+	}
+	
+	
 	
 	
 	######################
@@ -221,6 +235,7 @@ if(!class_exists('VerifyMail_API')) : class VerifyMail_API {
 	 *
 	 * @pharam   string     Email address
 	 */
+	private $request;
 	private function __construct( $email ) {
 		$this->request = $this->request( $email );
 	}
@@ -231,11 +246,15 @@ if(!class_exists('VerifyMail_API')) : class VerifyMail_API {
 	 * @pharam   string     Email address
 	 * @return   objects
 	 */
-	private $request;
 	private function request( $email ) {
 		
 		// Keep email in lowercase
 		$email = strtolower($email);
+		
+		// If mail is not verified
+		if( !self::validate($email) ) {
+			return $this->render( $this );
+		}
 		
 		// Get the cache
 		if( $response = wp_cache_get('verifymail_' . $email, self::CACHE_GROUP) ){
@@ -243,13 +262,16 @@ if(!class_exists('VerifyMail_API')) : class VerifyMail_API {
 		}
 		
 		// Ask API for the email
-		$response = wp_remote_get( esc_url('https://verifymail.io/api/' . $email . '?key=' . VerifyMail_Settings::get('api_key', NULL) . '&referrer=wordpress') );
+		$response = wp_remote_get('https://verifymail.io/api/' . $email . '?key=' . VerifyMail_Settings::get('api_key', '') );
 		
 		// Verify API response
 		if ( is_array( $response ) && ! is_wp_error( $response ) ) {
 			
+			// Get response code
+			$response_code = wp_remote_retrieve_response_code( $response );
+			
 			// Proccess response
-			$response = $this->proccess( wp_remote_retrieve_body( $response ) );
+			$response = $this->proccess( wp_remote_retrieve_body( $response ), $response_code );
 			
 			// Render response
 			$response = $this->render( $response );
@@ -273,7 +295,7 @@ if(!class_exists('VerifyMail_API')) : class VerifyMail_API {
 	 * @pharam   JSON     API Response
 	 * @return   objects
 	 */
-	private function proccess ( $response ) {
+	private function proccess ( $response, $response_code = 404 ) {
 		
 		// Get public objects
 		$__this = (object)get_object_vars($this);
@@ -281,6 +303,24 @@ if(!class_exists('VerifyMail_API')) : class VerifyMail_API {
 		
 		// Decode JSON response
 		if( $response = json_decode($response, true) ) {
+			
+			// Append code		
+			$response['status'] = $response_code;
+			
+			// Debugging
+			// $response['checkdnsrr'] = checkdnsrr( $response['domain'], 'MX' );
+			// tp_dump($response);
+			
+			// Verify domain
+			if( !$response['block'] && !$response['deliverable_email'] ) {
+				$response['domain_verified'] = $this->verify_domain( $response['domain'] );				
+				if( !$response['domain_verified'] ) {
+					$response['block'] = true;
+					$response['deliverable_email'] = false;
+				}
+			}
+			
+			$response = apply_filters('verifymail_proccess_response', $response, $this);
 			
 			// Loop, sanitize and build objects
 			foreach($response as $column => $value) {
@@ -300,7 +340,7 @@ if(!class_exists('VerifyMail_API')) : class VerifyMail_API {
 		}
 		
 		// Return
-		return $__this;
+		return apply_filters('verifymail_proccess_return_response', $__this, $response, $this);
 	}
 	
 	/**
@@ -310,6 +350,8 @@ if(!class_exists('VerifyMail_API')) : class VerifyMail_API {
 	 * @return   objects
 	 */
 	private function render ($__this) {
+		
+		$__this = apply_filters('verifymail_before_render_response', $__this, $this);
 		
 		// If deliverable email is not provided 
 		if( NULL === $__this->deliverable_email ) {
@@ -335,7 +377,7 @@ if(!class_exists('VerifyMail_API')) : class VerifyMail_API {
 			}
 		}
 		
-		return $__this;
+		return apply_filters('verifymail_render_response', $__this, $this);
 	}
 	
 	/**
@@ -347,11 +389,52 @@ if(!class_exists('VerifyMail_API')) : class VerifyMail_API {
 		$__this = (object)get_object_vars($this);
 		unset( $__this->request );
 		
-		$__this->message = __( 'Unable to communicate with `verifymail.io` API service.', 'tourly-platform' );
+		$__this->message = __( 'Unable to communicate with `verifymail.io` API service.', 'verifymail' );
 		$__this->message = true;
 		
 		return $__this;
 	}
+	
+	
+	/**
+	 * Check and verify whether a domain exists or not in the fastest possible way
+	 *
+	 * @return   bool
+	 */
+	private function verify_domain( $url )
+	{
+		// Initialize domain
+		$ch = curl_init( esc_url($url) );
+		
+		// Special settings
+		curl_setopt_array( $ch, [
+			CURLOPT_NOBODY 			=> true,
+			CURLOPT_FAILONERROR 	=> true,
+			CURLOPT_RETURNTRANSFER 	=> true,
+			CURLOPT_NOSIGNAL 		=> true,
+			CURLOPT_SSL_VERIFYPEER 	=> false,
+			CURLOPT_SSL_VERIFYHOST 	=> false,
+			CURLOPT_HEADER 			=> false,
+			CURLOPT_FOLLOWLOCATION	=> true,
+			CURLOPT_VERBOSE			=> false,
+			CURLOPT_USERAGENT 		=> ( $_SERVER['HTTP_USER_AGENT'] ?? '' ),
+			CURLOPT_TIMEOUT_MS 		=> 3000, // TImeout in miliseconds
+			CURLOPT_MAXREDIRS 		=> 2,
+		] );
+		
+		// Execute
+		curl_exec( $ch );
+		
+		// Get domain informations
+		$info = curl_getinfo($ch);
+		
+		// Close cURL
+		curl_close($ch);
+		
+		// Return
+		return !empty($info['primary_ip'] ?? NULL);
+	}
+	
 	
 	/**
 	 * Get cache period
@@ -359,11 +442,13 @@ if(!class_exists('VerifyMail_API')) : class VerifyMail_API {
 	 * @return   integer      Timestamp
 	 */
 	private function cache_period() {
-		if( is_numeric(self::CACHE_PERIOD) ) {
-			return absint(self::CACHE_PERIOD);
+		$cache_period = VerifyMail_Settings::get('cache_period', 'monthly');
+		
+		if( is_numeric($cache_period) ) {
+			return absint($cache_period);
 		}
 		
-		switch(self::CACHE_PERIOD) {
+		switch($cache_period) {
 			
 			case 'hourly':
 				return HOUR_IN_SECONDS;

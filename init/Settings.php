@@ -21,17 +21,19 @@ if(!class_exists('VerifyMail_Settings')) : class VerifyMail_Settings {
 	 * Get the plugin settings option
 	 */
 	public static function get($name, $default=NULL) {
-		static $verifymail_settings = [];
+		global $verifymail;
 		
-		if( empty($verifymail_settings) ) {
-			$verifymail_settings = get_option('verifymail_settings', []);
+		if( !($verifymail->settings ?? NULL) ) {
+			$verifymail->settings = get_option('verifymail_settings', []);
 		}
 		
-		if( $verifymail_settings[$name] ?? NULL ) {
-			return $verifymail_settings[$name];
+		$option = apply_filters('verifymail_get_option', ( $verifymail->settings[$name] ?? NULL ), $name, $default);
+		
+		if( $option ) {
+			return $option;
 		}
 		
-		return $default;
+		return apply_filters('verifymail_get_option_default', $default, $name);
 	}
 	
 	/**
@@ -74,7 +76,7 @@ if(!class_exists('VerifyMail_Settings')) : class VerifyMail_Settings {
 			'verifymail',
 			'general_settings',
 			[
-				'type'			=> 'text',
+				'type'			=> 'password',
 				'value'         => self::get('api_key', NULL),
 				'placeholder'   => __('Insert API KEY', 'verifymail'),
 				'id'			=> 'verifymail_api_key',
@@ -158,6 +160,40 @@ if(!class_exists('VerifyMail_Settings')) : class VerifyMail_Settings {
 			]
 		);
 		
+		// Register Verify Mail Cache Settings to the "verifymail" page.
+		add_settings_section(
+			'cache_settings',
+			__( 'Cache Settings', 'verifymail' ),
+			function() {
+				printf(
+					'<p>%s</p>',
+					esc_html__( 'Adjust the caching provided by the plugin.', 'verifymail' )
+				);
+			},
+			'verifymail'
+		);
+		
+		add_settings_field(
+			'cache_period',
+			__( 'Caching Period', 'verifymail' ),
+			[$this, 'select_callback'],
+			'verifymail',
+			'cache_settings',
+			[
+				'default'       => self::get('cache_period', 'monthly'),
+				'id'			=> 'cache_period',
+				'name'			=> 'verifymail_settings[cache_period]',
+				'desc'			=> __('Choose a caching period for API calls to avoid frequent duplication. Default: "Monthly"', 'verifymail'),
+				'options' => [
+					'hourly'	=> __( 'Hourly', 'verifymail' ),
+					'daily'		=> __( 'Daily', 'verifymail' ),
+					'monthly'	=> __( 'Monthly', 'verifymail' ),
+					'yearly'	=> __( 'Yearly', 'verifymail' )
+				]
+			]
+		);
+		
+		
 		// Register Verify Mail Labels to the "verifymail" page.
 		add_settings_section(
 			'verifymail_labels',
@@ -199,6 +235,22 @@ if(!class_exists('VerifyMail_Settings')) : class VerifyMail_Settings {
 				'id'			=> 'verifymail_label_error_wp_login',
 				'name'			=> 'verifymail_settings[label_error_password_reset]',
 				'desc'			=> __('Custom message displayed to all users with an unverified email address trying to reset their password.', 'verifymail'),
+				'class'			=> 'large-text'
+			]
+		);
+		
+		add_settings_field(
+			'label_error_signup_form',
+			__( 'Password Reset Error Message', 'verifymail' ),
+			[$this, 'textarea_callback'],
+			'verifymail',
+			'verifymail_labels',
+			[
+				'value'       	=> self::get('label_error_signup_form', ''),
+				'placeholder'	=> __('You are not allowed to create an account with this email address that you are currently using.', 'verifymail'),
+				'id'			=> 'verifymail_label_error_wp_login',
+				'name'			=> 'verifymail_settings[label_error_signup_form]',
+				'desc'			=> __('Custom message displayed to all users with an unverified email address trying to register their profile.', 'verifymail'),
 				'class'			=> 'large-text'
 			]
 		);
