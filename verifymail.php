@@ -61,7 +61,8 @@ if( !class_exists('VerifyMail', false) ) : final class VerifyMail {
 		
 		$include_classes = [
 			'Settings' => true,
-			'API' => false
+			'API' => false,
+			'WordPress' => true,
 		];
 		
 		foreach($include_classes as $include => $init) {

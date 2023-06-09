@@ -81,6 +81,11 @@ if(!class_exists('VerifyMail_API')) : class VerifyMail_API {
 	 * @return   bool
 	 */
 	public static function verify( $email ) {
+		
+		if( defined('VERIFY_MAIL_TEST_MODE') && VERIFY_MAIL_TEST_MODE ) {
+			return true;
+		}
+		
 		$lookup = self::lookup( $email );
 		
 		if( $lookup->deliverable_email ) {
